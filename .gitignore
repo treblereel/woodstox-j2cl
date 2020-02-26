@@ -1,0 +1,6 @@
+*.class
+.idea/
+wootstox-j2cl.iml
+.classpath
+.project
+.settings/
