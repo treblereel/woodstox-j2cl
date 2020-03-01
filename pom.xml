@@ -66,6 +66,19 @@
     </dependency>
 
     <dependency>
+      <groupId>org.dominokit.jackson</groupId>
+      <artifactId>jackson-apt</artifactId>
+      <version>1.0-SNAPSHOT</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.dominokit.jackson</groupId>
+      <artifactId>jackson-apt-processor</artifactId>
+      <version>1.0-SNAPSHOT</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
       <groupId>com.vertispan.j2cl</groupId>
       <artifactId>junit-annotations</artifactId>
       <version>${j2cl.version}</version>
@@ -174,7 +187,7 @@
         </executions>
         <configuration>
           <defaultWebappDirectory>${project.build.directory}/gwt/launcherDir</defaultWebappDirectory>
-          <compilationLevel>BUNDLE</compilationLevel>
+          <compilationLevel>ADVANCED</compilationLevel>
           <entrypoint>aaa.bbb.ccc.ddd.App</entrypoint>
           <tests>
             <test>aaa.bbb.ccc.ddd.AppTest</test>
