@@ -4,3 +4,5 @@ wootstox-j2cl.iml
 .classpath
 .project
 .settings/
+core/target/
+demo/target/
