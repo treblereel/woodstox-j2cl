@@ -457,16 +457,11 @@ public class WstxInputData
     @SuppressWarnings("cast")
 	public static String getCharDesc(char c)
     {
-        throw new UnsupportedOperationException("getCharDesc " + c);
-
-/*        int i = (int) c;
-        if (Character.isISOControl(c)) {
-            return "(CTRL-CHAR, code "+i+")";
-        }
+        int i = (int) c;
         if (i > 255) {
-            return "'"+c+"' (code "+i+" / 0x"+Integer.toHexString(i)+")";
+            return "'"+c+"' (code "+i+" / 0x" + Integer.toHexString(i)+")";
         }
-        return "'"+c+"' (code "+i+")";*/
+        return "'"+c+"' (code "+i+")";
     }
 
 }
