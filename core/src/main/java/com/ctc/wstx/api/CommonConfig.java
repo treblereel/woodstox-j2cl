@@ -2,7 +2,6 @@ package com.ctc.wstx.api;
 
 import java.util.*;
 
-import elemental2.dom.DomGlobal;
 import org.codehaus.stax2.XMLStreamProperties;
 
 import com.ctc.wstx.util.ArgUtil;

@@ -3,7 +3,6 @@ package com.ctc.wstx.util;
 import java.lang.reflect.Array;
 import java.util.*;
 
-import elemental2.dom.DomGlobal;
 import org.codehaus.stax2.ri.SingletonIterator;
 
 public final class DataUtil
@@ -107,13 +106,7 @@ public final class DataUtil
         }
         Object old = arr;
         int len = Array.getLength(arr);
-        DomGlobal.console.log("len? " + len);
-
         //Class clazz = arr.getClass().getCanonicalName();
-
-        DomGlobal.console.log("aaa? " + arr.getClass().getCanonicalName() + " " + arr.getClass().getComponentType());
-
-
         //arr = Array.newInstance(arr.getClass().getComponentType(), len + (len >> 1));
 
         arr = new com.ctc.wstx.sr.Attribute[len + (len >> 1)];

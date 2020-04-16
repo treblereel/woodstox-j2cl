@@ -19,10 +19,8 @@ import javax.xml.stream.Location;
 import javax.xml.stream.XMLStreamException;
 
 import org.codehaus.stax2.validation.ValidationContext;
-import org.codehaus.stax2.validation.XMLValidationProblem;
 import org.codehaus.stax2.validation.XMLValidator;
 
-import com.ctc.wstx.cfg.ErrorConsts;
 
 /**
  * Simple container class used to contain information about the default
