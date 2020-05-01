@@ -9,6 +9,7 @@ import javax.xml.stream.XMLEventReader;
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLOutputFactory;
 import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 import javax.xml.stream.XMLStreamWriter;
 import javax.xml.stream.events.Attribute;
 import javax.xml.stream.events.StartElement;
@@ -45,7 +46,7 @@ public class App implements EntryPoint {
     @Override
     public void onModuleLoad() {
 
-
+        DomGlobal.console.log("onModuleLoad");
 
         addLine("Generated xml");
 
@@ -185,13 +186,20 @@ public class App implements EntryPoint {
             if (xhr.getReadyState() == DONE) {
                 InputStream byteArrayInputStream = new ByteArrayInputStream(xhr.response.toString().getBytes());
                 XMLInputFactory xmlInputFactory = new WstxInputFactory();
+
+
                 try {
+                    XMLStreamReader xmlStreamReader =  xmlInputFactory.createXMLStreamReader(byteArrayInputStream);
+
                     XMLEventReader reader = xmlInputFactory.createXMLEventReader(byteArrayInputStream);
                     while (reader.hasNext()) {
                         XMLEvent event = reader.nextEvent();
+
                         if (event.isStartElement()) {
                             StartElement element = (StartElement) event;
                             addLine("ELM  prefix:  " + element.getName().getPrefix() + "  " + element.getName());
+
+
                             element.getAttributes().forEachRemaining(new Consumer<Attribute>() {
                                 @Override
                                 public void accept(Attribute attr) {

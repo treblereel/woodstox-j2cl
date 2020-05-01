@@ -104,9 +104,10 @@ abstract class CommonConfig
      *   'root' configuration objects.
      */
     protected CommonConfig(CommonConfig base) {
-        mReturnNullForDefaultNamespace = (base == null)
+        mReturnNullForDefaultNamespace = false;
+/*        mReturnNullForDefaultNamespace = (base == null)
                 ? Boolean.valueOf(System.getProperty("com.ctc.wstx.returnNullForDefaultNamespace"))
-                : base.mReturnNullForDefaultNamespace;
+                : base.mReturnNullForDefaultNamespace;*/
     }
 
     /*

@@ -16,14 +16,15 @@
 
 package com.google.gwt.corp.compatibility;
 
-import org.gwtproject.typedarrays.client.Float32ArrayNative;
-import org.gwtproject.typedarrays.client.Float64ArrayNative;
-import org.gwtproject.typedarrays.client.Int32ArrayNative;
-import org.gwtproject.typedarrays.client.Int8ArrayNative;
-import org.gwtproject.typedarrays.shared.Float32Array;
-import org.gwtproject.typedarrays.shared.Float64Array;
-import org.gwtproject.typedarrays.shared.Int32Array;
-import org.gwtproject.typedarrays.shared.Int8Array;
+import com.google.gwt.typedarrays.client.Int8ArrayNative;
+import com.google.gwt.typedarrays.client.Float32ArrayNative;
+import com.google.gwt.typedarrays.client.Float64ArrayNative;
+import com.google.gwt.typedarrays.client.Int32ArrayNative;
+import com.google.gwt.typedarrays.client.Int8ArrayNative;
+import com.google.gwt.typedarrays.shared.Float32Array;
+import com.google.gwt.typedarrays.shared.Float64Array;
+import com.google.gwt.typedarrays.shared.Int32Array;
+import com.google.gwt.typedarrays.shared.Int8Array;
 
 public final class Numbers {
 	

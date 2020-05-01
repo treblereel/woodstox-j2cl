@@ -1,6 +1,7 @@
 package aaa.bbb.ccc.ddd;
 
 import java.util.List;
+import java.util.Map;
 
 import org.dominokit.jacksonapt.annotation.JSONMapper;
 
@@ -15,6 +16,17 @@ public class Person {
     private String lastName;
     private List<Person> childs;
 
+    private Map<String, String> map;
+
+    public Map<String, String> getMap() {
+        return map;
+    }
+
+    public void setMap(Map<String, String> map) {
+        this.map = map;
+    }
+
+    private Address address;
 
     @Override
     public String toString() {
@@ -24,8 +36,6 @@ public class Person {
                 ", address=" + address +
                 '}';
     }
-
-    private Address address;
 
     public String getFirstName() {
         return firstName;

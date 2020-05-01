@@ -3,19 +3,25 @@ package com.ctc.wstx.util;
 import java.util.Collection;
 import java.util.Iterator;
 
-public final class StringUtil
-{
+public final class StringUtil {
+
     final static char CHAR_SPACE = ' '; // 0x0020
     private final static char INT_SPACE = 0x0020;
-
+    /**
+     * Internal constant used to denote END-OF-STRING
+     */
+    private final static int EOS = 0x10000;
     static String sLF = null;
 
-    public static String getLF()
-    {
+    public static void appendLF(StringBuilder sb) {
+        sb.append(getLF());
+    }
+
+    public static String getLF() {
         String lf = sLF;
         if (lf == null) {
             try {
-                lf = System.getProperty("line.separator");
+                lf = "\n";
                 sLF = (lf == null) ? "\n" : lf;
             } catch (Throwable t) {
                 // Doh.... whatever; most likely SecurityException
@@ -23,10 +29,6 @@ public final class StringUtil
             }
         }
         return lf;
-    }
-
-    public static void appendLF(StringBuilder sb) {
-        sb.append(getLF());
     }
 
     public static String concatEntries(Collection<?> coll, String sep, String lastSep) {
@@ -56,23 +58,20 @@ public final class StringUtil
      * "extra" spaces (leading and trailing space), and normalize
      * other white space (more than one consequtive space character
      * replaced with a single space).
-     *<p>
+     * <p>
      * NOTE: we only remove explicit space characters (char code 0x0020);
      * the reason being that other white space must have come from
      * non-normalizable sources, ie. via entity expansion, and is thus
      * not to be normalized
-     *
      * @param buf Buffer that contains the String to check
      * @param origStart Offset of the first character of the text to check
-     *   in the buffer
+     * in the buffer
      * @param origEnd Offset of the character following the last character
-     *   of the text (as per usual Java API convention)
-     *
+     * of the text (as per usual Java API convention)
      * @return Normalized String, if any white space was removed or
-     *   normalized; null if no changes were necessary.
+     * normalized; null if no changes were necessary.
      */
-    public static String normalizeSpaces(char[] buf, int origStart, int origEnd)
-    {
+    public static String normalizeSpaces(char[] buf, int origStart, int origEnd) {
         --origEnd;
 
         int start = origStart;
@@ -98,11 +97,11 @@ public final class StringUtil
          * intermediate duplicate spaces. We also now that the
          * first and last characters can not be spaces.
          */
-        int i = start+1;
+        int i = start + 1;
 
         while (i < end) {
             if (buf[i] == CHAR_SPACE) {
-                if (buf[i+1] == CHAR_SPACE) {
+                if (buf[i + 1] == CHAR_SPACE) {
                     break;
                 }
                 // Nah; no hole for these 2 chars!
@@ -118,14 +117,14 @@ public final class StringUtil
             if (start == origStart && end == origEnd) {
                 return null; // none
             }
-            return new String(buf, start, (end-start)+1);
+            return new String(buf, start, (end - start) + 1);
         }
 
         /* Nope, got a hole, need to constuct the damn thing. Shouldn't
          * happen too often... so let's just use StringBuilder()
          */
-        StringBuilder sb = new StringBuilder(end-start); // can't be longer
-        sb.append(buf, start, i-start); // won't add the starting space
+        StringBuilder sb = new StringBuilder(end - start); // can't be longer
+        sb.append(buf, start, i - start); // won't add the starting space
 
         while (i <= end) {
             char c = buf[i++];
@@ -147,8 +146,7 @@ public final class StringUtil
         return sb.toString();
     }
 
-    public static boolean isAllWhitespace(String str)
-    {
+    public static boolean isAllWhitespace(String str) {
         for (int i = 0, len = str.length(); i < len; ++i) {
             if (str.charAt(i) > CHAR_SPACE) {
                 return false;
@@ -157,8 +155,7 @@ public final class StringUtil
         return true;
     }
 
-    public static boolean isAllWhitespace(char[] ch, int start, int len)
-    {
+    public static boolean isAllWhitespace(char[] ch, int start, int len) {
         len += start;
         for (; start < len; ++start) {
             if (ch[start] > CHAR_SPACE) {
@@ -169,25 +166,19 @@ public final class StringUtil
     }
 
     /**
-     * Internal constant used to denote END-OF-STRING
-     */
-    private final static int EOS = 0x10000;
-
-    /**
      * Method that implements a loose String compairon for encoding
      * Strings. It will work like {@link String#equalsIgnoreCase},
      * except that it will also ignore all hyphen, underscore and
      * space characters.
      */
-    public static boolean equalEncodings(String str1, String str2)
-    {
+    public static boolean equalEncodings(String str1, String str2) {
         final int len1 = str1.length();
         final int len2 = str2.length();
 
         // Need to loop completely over both Strings
         for (int i1 = 0, i2 = 0; i1 < len1 || i2 < len2; ) {
-            int c1 = (i1 >= len1) ?  EOS : str1.charAt(i1++);
-            int c2 = (i2 >= len2) ?  EOS : str2.charAt(i2++);
+            int c1 = (i1 >= len1) ? EOS : str1.charAt(i1++);
+            int c2 = (i2 >= len2) ? EOS : str2.charAt(i2++);
 
             // Can first do a quick comparison (usually they are equal)
             if (c1 == c2) {
@@ -196,10 +187,10 @@ public final class StringUtil
 
             // if not equal, maybe there are WS/hyphen/underscores to skip
             while (c1 <= INT_SPACE || c1 == '_' || c1 == '-') {
-                c1 = (i1 >= len1) ?  EOS : str1.charAt(i1++);
+                c1 = (i1 >= len1) ? EOS : str1.charAt(i1++);
             }
             while (c2 <= INT_SPACE || c2 == '_' || c2 == '-') {
-                c2 = (i2 >= len2) ?  EOS : str2.charAt(i2++);
+                c2 = (i2 >= len2) ? EOS : str2.charAt(i2++);
             }
             // Ok, how about case differences, then?
             if (c1 != c2) {
@@ -212,14 +203,14 @@ public final class StringUtil
                         c1 = c1 + ('a' - 'A');
                     }
                 } else {
-                    c1 = Character.toLowerCase((char)c1);
+                    c1 = Character.toLowerCase((char) c1);
                 }
                 if (c2 < 127) { // ascii is easy...
                     if (c2 <= 'Z' && c2 >= 'A') {
                         c2 = c2 + ('a' - 'A');
                     }
                 } else {
-                    c2 = Character.toLowerCase((char)c2);
+                    c2 = Character.toLowerCase((char) c2);
                 }
                 if (c1 != c2) {
                     return false;
@@ -228,11 +219,10 @@ public final class StringUtil
         }
 
         // If we got this far, we are ok as long as we got through it all
-        return true; 
+        return true;
     }
 
-    public static boolean encodingStartsWith(String enc, String prefix)
-    {
+    public static boolean encodingStartsWith(String enc, String prefix) {
         int len1 = enc.length();
         int len2 = prefix.length();
 
@@ -240,8 +230,8 @@ public final class StringUtil
 
         // Need to loop completely over both Strings
         while (i1 < len1 || i2 < len2) {
-            int c1 = (i1 >= len1) ?  EOS : enc.charAt(i1++);
-            int c2 = (i2 >= len2) ?  EOS : prefix.charAt(i2++);
+            int c1 = (i1 >= len1) ? EOS : enc.charAt(i1++);
+            int c2 = (i2 >= len2) ? EOS : prefix.charAt(i2++);
 
             // Can first do a quick comparison (usually they are equal)
             if (c1 == c2) {
@@ -250,10 +240,10 @@ public final class StringUtil
 
             // if not equal, maybe there are WS/hyphen/underscores to skip
             while (c1 <= CHAR_SPACE || c1 == '_' || c1 == '-') {
-                c1 = (i1 >= len1) ?  EOS : enc.charAt(i1++);
+                c1 = (i1 >= len1) ? EOS : enc.charAt(i1++);
             }
             while (c2 <= CHAR_SPACE || c2 == '_' || c2 == '-') {
-                c2 = (i2 >= len2) ?  EOS : prefix.charAt(i2++);
+                c2 = (i2 >= len2) ? EOS : prefix.charAt(i2++);
             }
             // Ok, how about case differences, then?
             if (c1 != c2) {
@@ -263,22 +253,21 @@ public final class StringUtil
                 if (c1 == EOS) { // Encoding done, not good
                     return false;
                 }
-                if (Character.toLowerCase((char)c1) != Character.toLowerCase((char)c2)) {
+                if (Character.toLowerCase((char) c1) != Character.toLowerCase((char) c2)) {
                     return false;
                 }
             }
         }
 
         // Ok, prefix was exactly the same as encoding... that's fine
-        return true; 
+        return true;
     }
 
     /**
      * Method that will remove all non-alphanumeric characters, and optionally
      * upper-case included letters, from the given String.
      */
-    public static String trimEncoding(String str, boolean upperCase)
-    {
+    public static String trimEncoding(String str, boolean upperCase) {
         int i = 0;
         int len = str.length();
 
@@ -312,13 +301,12 @@ public final class StringUtil
         return sb.toString();
     }
 
-    public static boolean matches(String str, char[] cbuf, int offset, int len)
-    {
+    public static boolean matches(String str, char[] cbuf, int offset, int len) {
         if (str.length() != len) {
             return false;
         }
         for (int i = 0; i < len; ++i) {
-            if (str.charAt(i) != cbuf[offset+i]) {
+            if (str.charAt(i) != cbuf[offset + i]) {
                 return false;
             }
         }
@@ -326,15 +314,14 @@ public final class StringUtil
     }
 
     /**
-     *<p>
+     * <p>
      * Note that it is assumed that any "weird" white space
      * (xml 1.1 LSEP and NEL) have been replaced by canonical
      * alternatives (linefeed for element content, regular space
      * for attributes)
      */
     @SuppressWarnings("cast")
-	public final static boolean isSpace(char c)
-    {
+    public final static boolean isSpace(char c) {
         return ((int) c) <= 0x0020;
     }
 }

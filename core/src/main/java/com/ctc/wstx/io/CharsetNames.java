@@ -274,21 +274,4 @@ public final class CharsetNames
         return csName;
     }
 
-    /**
-     * Because of legacy encodings used by earlier JDK versions, we
-     * need to be careful when accessing encoding names via JDK
-     * classes.
-     */
-    public static String findEncodingFor(Writer w)
-    {
-        if (w instanceof OutputStreamWriter) {
-            String enc = ((OutputStreamWriter) w).getEncoding();
-            /* [WSTX-146]: It is important that we normalize this, since
-             *  older JDKs return legacy encoding names ("UTF8" instead of
-             *  canonical "UTF-8")
-             */
-            return normalize(enc);
-        }
-        return null;
-    }
 }

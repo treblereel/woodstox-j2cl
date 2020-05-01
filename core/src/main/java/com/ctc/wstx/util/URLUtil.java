@@ -3,7 +3,7 @@ package com.ctc.wstx.util;
 import java.io.*;
 import java.net.*;
 
-import org.gwtproject.regexp.shared.RegExp;
+import com.google.gwt.regexp.shared.RegExp;
 
 public final class URLUtil
 {

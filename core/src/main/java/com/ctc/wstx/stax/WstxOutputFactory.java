@@ -288,10 +288,6 @@ public class WstxOutputFactory
                 throw new XMLStreamException(ex);
             }
         } else {
-            // we may still be able to figure out the encoding:
-            if (enc == null) {
-                enc = CharsetNames.findEncodingFor(w);
-            }
             try {
                 xw = new BufferingXmlWriter(w, cfg, enc, autoCloseOutput, null, -1);
             } catch (IOException ex) {
