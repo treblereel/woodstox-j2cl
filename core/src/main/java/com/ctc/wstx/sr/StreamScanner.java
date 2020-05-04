@@ -28,10 +28,6 @@ import javax.xml.stream.XMLReporter;
 import javax.xml.stream.XMLResolver;
 import javax.xml.stream.XMLStreamException;
 
-import org.codehaus.stax2.XMLReporter2;
-import org.codehaus.stax2.XMLStreamLocation2;
-import org.codehaus.stax2.validation.XMLValidationProblem;
-
 import com.ctc.wstx.api.ReaderConfig;
 import com.ctc.wstx.cfg.ErrorConsts;
 import com.ctc.wstx.cfg.InputConfigFlags;
@@ -40,7 +36,13 @@ import com.ctc.wstx.cfg.XmlConsts;
 import com.ctc.wstx.dtd.MinimalDTDReader;
 import com.ctc.wstx.ent.EntityDecl;
 import com.ctc.wstx.ent.IntEntity;
-import com.ctc.wstx.exc.*;
+import com.ctc.wstx.exc.WstxEOFException;
+import com.ctc.wstx.exc.WstxException;
+import com.ctc.wstx.exc.WstxIOException;
+import com.ctc.wstx.exc.WstxLazyException;
+import com.ctc.wstx.exc.WstxParsingException;
+import com.ctc.wstx.exc.WstxUnexpectedCharException;
+import com.ctc.wstx.exc.WstxValidationException;
 import com.ctc.wstx.io.DefaultInputResolver;
 import com.ctc.wstx.io.WstxInputData;
 import com.ctc.wstx.io.WstxInputLocation;
@@ -48,16 +50,19 @@ import com.ctc.wstx.io.WstxInputSource;
 import com.ctc.wstx.util.ExceptionUtil;
 import com.ctc.wstx.util.SymbolTable;
 import com.ctc.wstx.util.TextBuffer;
+import org.codehaus.stax2.XMLReporter2;
+import org.codehaus.stax2.XMLStreamLocation2;
+import org.codehaus.stax2.validation.XMLValidationProblem;
 
 /**
  * Abstract base class that defines some basic functionality that all
  * Woodstox reader classes (main XML reader, DTD reader) extend from.
  */
 public abstract class StreamScanner
-    extends WstxInputData
-    implements InputProblemReporter,
-        InputConfigFlags, ParsingErrorMsgs
-{
+        extends WstxInputData
+        implements InputProblemReporter,
+                   InputConfigFlags,
+                   ParsingErrorMsgs {
 
     // // // Some well-known chars:
 
@@ -75,7 +80,6 @@ public abstract class StreamScanner
      * quoting text, as part of {@code ]]>})
      */
     protected final static char CHAR_FIRST_PURE_TEXT = (char) ('>' + 1);
-
 
     /**
      * First character in Unicode (ie one with lowest id) that is legal
@@ -103,6 +107,13 @@ public abstract class StreamScanner
     private final static byte NAME_CHAR_VALID_NONFIRST_B = (byte) -1;
 
     private final static byte[] sCharValidity = new byte[VALID_CHAR_COUNT];
+    /**
+     * Public identifiers only use 7-bit ascii range.
+     */
+    private final static int VALID_PUBID_CHAR_COUNT = 0x80;
+    private final static byte[] sPubidValidity = new byte[VALID_PUBID_CHAR_COUNT];
+    //    private final static byte PUBID_CHAR_INVALID_B = (byte) 0;
+    private final static byte PUBID_CHAR_VALID_B = (byte) 1;
 
     static {
         // First, since all valid-as-first chars are also valid-as-other chars,
@@ -128,13 +139,6 @@ public abstract class StreamScanner
         }
     }
 
-    /**
-     * Public identifiers only use 7-bit ascii range.
-     */
-    private final static int VALID_PUBID_CHAR_COUNT = 0x80;
-    private final static byte[] sPubidValidity = new byte[VALID_PUBID_CHAR_COUNT];
-//    private final static byte PUBID_CHAR_INVALID_B = (byte) 0;
-    private final static byte PUBID_CHAR_VALID_B = (byte) 1;
     static {
         for (int i = 0, last = ('z' - 'a'); i <= last; ++i) {
             sPubidValidity['A' + i] = PUBID_CHAR_VALID_B;
@@ -193,46 +197,6 @@ public abstract class StreamScanner
     protected final boolean mCfgNsEnabled;
 
     // Extracted standard on/off settings:
-
-    /**
-     * note: left non-final on purpose: sub-class may need to modify
-     * the default value after construction.
-     */
-    protected boolean mCfgReplaceEntities;
-
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Symbol handling, if applicable
-    ///////////////////////////////////////////////////////////////////////
-     */
-
-    final SymbolTable mSymbols;
-
-    /**
-     * Local full name for the event, if it has one (note: element events
-     * do NOT use this variable; those names are stored in element stack):
-     * target for processing instructions.
-     *<p>
-     * Currently used for proc. instr. target, and entity name (at least
-     * when current entity reference is null).
-     *<p>
-     * Note: this variable is generally not cleared, since it comes from
-     * a symbol table, ie. this won't be the only reference.
-     */
-    protected String mCurrName;
-
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Input handling
-    ///////////////////////////////////////////////////////////////////////
-     */
-
-    /**
-     * Currently active input source; contains link to parent (nesting) input
-     * sources, if any.
-     */
-    protected WstxInputSource mInput;
-
     /**
      * Top-most input source this reader can use; due to input source
      * chaining, this is not necessarily the root of all input; for example,
@@ -241,6 +205,40 @@ public abstract class StreamScanner
      */
     protected final WstxInputSource mRootInput;
 
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Symbol handling, if applicable
+    ///////////////////////////////////////////////////////////////////////
+     */
+    final SymbolTable mSymbols;
+    /**
+     * note: left non-final on purpose: sub-class may need to modify
+     * the default value after construction.
+     */
+    protected boolean mCfgReplaceEntities;
+
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Input handling
+    ///////////////////////////////////////////////////////////////////////
+     */
+    /**
+     * Local full name for the event, if it has one (note: element events
+     * do NOT use this variable; those names are stored in element stack):
+     * target for processing instructions.
+     * <p>
+     * Currently used for proc. instr. target, and entity name (at least
+     * when current entity reference is null).
+     * <p>
+     * Note: this variable is generally not cleared, since it comes from
+     * a symbol table, ie. this won't be the only reference.
+     */
+    protected String mCurrName;
+    /**
+     * Currently active input source; contains link to parent (nesting) input
+     * sources, if any.
+     */
+    protected WstxInputSource mInput;
     /**
      * Custom resolver used to handle external entities that are to be expanded
      * by this reader (external param/general entity expander)
@@ -253,7 +251,7 @@ public abstract class StreamScanner
      * It is used to enforce input scope constraints for nesting of
      * elements (for xml reader) and dtd declaration (for dtd reader)
      * with regards to input block (entity expansion) boundaries.
-     *<p>
+     * <p>
      * Basically this value is compared to {@link #mInputTopDepth}, which
      * indicates what was the depth at the point where the currently active
      * input scope/block was started.
@@ -266,11 +264,10 @@ public abstract class StreamScanner
      * Number of times a parsed general entity has been expanded; used for
      * (optionally) limiting number of expansion to guard against
      * denial-of-service attacks like "Billion Laughs".
-     * 
      * @since 4.3
      */
     protected int mEntityExpansionCount;
-    
+
     /**
      * Flag that indicates whether linefeeds in the input data are to
      * be normalized or not.
@@ -283,7 +280,6 @@ public abstract class StreamScanner
 
     /**
      * Flag that indicates whether all escaped chars are accepted in XML 1.0.
-     *
      * @since 5.2
      */
     protected boolean mAllowXml11EscapedCharsInXml10;
@@ -314,7 +310,7 @@ public abstract class StreamScanner
      * For big (gigabyte-sized) sizes are possible, needs to be long,
      * unlike pointers and sizes related to in-memory buffers.
      */
-    protected long mTokenInputTotal = 0; 
+    protected long mTokenInputTotal = 0;
 
     /**
      * Input row on which current token starts, 1-based
@@ -351,17 +347,17 @@ public abstract class StreamScanner
      * from {@link XmlConsts} (like {@link XmlConsts#XML_V_10}).
      */
     protected int mDocXmlVersion = XmlConsts.XML_V_UNKNOWN;
-    
+
     /**
      * Cache of internal character entities;
      */
-    protected Map<String,IntEntity> mCachedEntities;
-    
+    protected Map<String, IntEntity> mCachedEntities;
+
     /**
      * Flag for whether or not character references should be treated as entities
      */
     protected boolean mCfgTreatCharRefsAsEntities;
-    
+
     /**
      * Entity reference stream currently points to.
      */
@@ -378,8 +374,7 @@ public abstract class StreamScanner
      * does not share its input buffers or state with another reader.
      */
     protected StreamScanner(WstxInputSource input, ReaderConfig cfg,
-                            XMLResolver res)
-    {
+                            XMLResolver res) {
         super();
         mInput = input;
         // 17-Jun-2004, TSa: Need to know root-level input source
@@ -397,10 +392,10 @@ public abstract class StreamScanner
         mInputBuffer = null;
         mInputPtr = mInputEnd = 0;
         mEntityResolver = res;
-        
+
         mCfgTreatCharRefsAsEntities = mConfig.willTreatCharRefsAsEnts();
         if (mCfgTreatCharRefsAsEntities) {
-            mCachedEntities = new HashMap<String,IntEntity>();
+            mCachedEntities = new HashMap<String, IntEntity>();
         } else {
             mCachedEntities = Collections.emptyMap();
         }
@@ -419,23 +414,18 @@ public abstract class StreamScanner
     ///////////////////////////////////////////////////////////////////////
      */
 
-    /**
-     * Method that returns location of the last character returned by this
-     * reader; that is, location "one less" than the currently pointed to
-     * location.
-     */
-    protected WstxInputLocation getLastCharLocation()
-    {
-        return mInput.getLocation(mCurrInputProcessed + mInputPtr - 1,
-                mCurrInputRow, mInputPtr - mCurrInputRowStart);
-    }
-
     protected URL getSource() throws IOException {
         return mInput.getSource();
     }
 
     protected String getSystemId() {
         return mInput.getSystemId();
+    }
+
+    public XMLStreamLocation2 getStartLocation() {
+        // note: +1 is used as columns are 1-based...
+        return mInput.getLocation(mTokenInputTotal,
+                                  mTokenInputRow, mTokenInputCol + 1);
     }
 
     /*
@@ -445,25 +435,22 @@ public abstract class StreamScanner
     ///////////////////////////////////////////////////////////////////////
      */
 
-    /**
-     * Returns location of last properly parsed token; as per StAX specs,
-     * apparently needs to be the end of current event, which is the same
-     * as the start of the following event (or EOF if that's next).
-     */
-    @Override
-    public abstract Location getLocation();
-
-    public XMLStreamLocation2 getStartLocation()
-    {
-        // note: +1 is used as columns are 1-based...
-        return mInput.getLocation(mTokenInputTotal,
-                mTokenInputRow, mTokenInputCol + 1);
+    public XMLStreamLocation2 getCurrentLocation() {
+        return mInput.getLocation(mCurrInputProcessed + mInputPtr,
+                                  mCurrInputRow, mInputPtr - mCurrInputRowStart + 1);
     }
 
-    public XMLStreamLocation2 getCurrentLocation()
-    {
-        return mInput.getLocation(mCurrInputProcessed + mInputPtr,
-                mCurrInputRow, mInputPtr - mCurrInputRowStart + 1);
+    public WstxException throwWfcException(String msg, boolean deferErrors)
+            throws WstxException {
+        WstxException ex = constructWfcException(msg);
+        if (!deferErrors) {
+            throw ex;
+        }
+        return ex;
+    }
+
+    protected WstxException constructWfcException(String msg) {
+        return new WstxParsingException(msg, getLastCharLocation());
     }
 
     /*
@@ -472,72 +459,26 @@ public abstract class StreamScanner
     ///////////////////////////////////////////////////////////////////////
      */
 
-    public WstxException throwWfcException(String msg, boolean deferErrors)
-        throws WstxException
-    {
-        WstxException ex = constructWfcException(msg);
-        if (!deferErrors) {
-            throw ex;
-        }
-        return ex;
-    }
-
-    @Override
-    public void throwParseError(String msg) throws XMLStreamException {
-        throwParseError(msg, null, null);
-    }
-
     /**
-     * Throws generic parse error with specified message and current parsing
+     * Method that returns location of the last character returned by this
+     * reader; that is, location "one less" than the currently pointed to
      * location.
-     *<p>
-     * Note: public access only because core code in other packages needs
-     * to access it.
      */
-    @Override
-    public void throwParseError(String format, Object arg, Object arg2)
-        throws XMLStreamException
-    {
-
-        throw new UnsupportedOperationException("throwParseError");
-
-/*        String msg = (arg != null || arg2 != null) ?
-            MessageFormat.format(format, new Object[] { arg, arg2 }) : format;
-        throw constructWfcException(msg);*/
+    protected WstxInputLocation getLastCharLocation() {
+        return mInput.getLocation(mCurrInputProcessed + mInputPtr - 1,
+                                  mCurrInputRow, mInputPtr - mCurrInputRowStart);
     }
 
     public void reportProblem(String probType, String format, Object arg, Object arg2)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         XMLReporter rep = mConfig.getXMLReporter();
         if (rep != null) {
-
-            throw new UnsupportedOperationException("reportProblem");
-/*
-            _reportProblem(rep, probType,
-                            MessageFormat.format(format, new Object[] { arg, arg2 }), null);*/
-        }
-    }
-
-    @Override
-    public void reportProblem(Location loc, String probType,
-                              String format, Object arg, Object arg2)
-        throws XMLStreamException
-    {
-        XMLReporter rep = mConfig.getXMLReporter();
-        if (rep != null) {
-            throw new UnsupportedOperationException("reportProblem");
-
-
-/*            String msg = (arg != null || arg2 != null) ?
-                MessageFormat.format(format, new Object[] { arg, arg2 }) : format;
-            _reportProblem(rep, probType, msg, loc);*/
+            throw new Error(format.replace("{0}", arg.toString()).replace("{1}", arg2.toString()));
         }
     }
 
     protected void _reportProblem(XMLReporter rep, String probType, String msg, Location loc)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (loc == null) {
             loc = getLastCharLocation();
         }
@@ -545,8 +486,7 @@ public abstract class StreamScanner
     }
 
     protected void _reportProblem(XMLReporter rep, XMLValidationProblem prob)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (rep != null) {
             Location loc = prob.getLocation();
             if (loc == null) {
@@ -567,120 +507,24 @@ public abstract class StreamScanner
         }
     }
 
-    /**
-     *<p>
-     * Note: this is the base implementation used for implementing
-     * <code>ValidationContext</code>
-     */
-    @Override
-    public void reportValidationProblem(XMLValidationProblem prob)
-        throws XMLStreamException
-    {
-        // !!! TBI: Fail-fast vs. deferred modes?
-        /* For now let's implement basic functionality: warnings get
-         * reported via XMLReporter, errors and fatal errors result in
-         * immediate exceptions.
-         */
-        /* 27-May-2008, TSa: [WSTX-153] Above is incorrect: as per Stax
-         *   javadocs for XMLReporter, both warnings and non-fatal errors
-         *   (which includes all validation errors) should be reported via
-         *   XMLReporter interface, and only fatals should cause an
-         *   immediate stream exception (by-passing reporter)
-         */
-        if (prob.getSeverity() > XMLValidationProblem.SEVERITY_ERROR) {
-            throw WstxValidationException.create(prob);
-        }
-        XMLReporter rep = mConfig.getXMLReporter();
-        if (rep != null) {
-            _reportProblem(rep, prob);
-        } else {
-            /* If no reporter, regular non-fatal errors are to be reported
-             * as exceptions as well, for backwards compatibility
-             */
-            if (prob.getSeverity() >= XMLValidationProblem.SEVERITY_ERROR) {
-                throw WstxValidationException.create(prob);
-            }
-        }
-    }
-
     public void reportValidationProblem(String msg, int severity)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         reportValidationProblem(new XMLValidationProblem(getLastCharLocation(),
                                                          msg, severity));
     }
 
-    @Override
-    public void reportValidationProblem(String msg)
-        throws XMLStreamException
-    {
-        reportValidationProblem(new XMLValidationProblem(getLastCharLocation(), msg,
-                XMLValidationProblem.SEVERITY_ERROR));
-    }
-
     public void reportValidationProblem(Location loc, String msg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         reportValidationProblem(new XMLValidationProblem(loc, msg));
-    }
-
-    @Override
-    public void reportValidationProblem(String format, Object arg, Object arg2)
-        throws XMLStreamException
-    {
-
-        throw new UnsupportedOperationException("reportValidationProblem");
-
-/*
-        reportValidationProblem(MessageFormat.format(format, new Object[] { arg, arg2 }));
-*/
-    }
-
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Other error reporting methods
-    ///////////////////////////////////////////////////////////////////////
-     */
-
-    protected WstxException constructWfcException(String msg)
-    {
-        return new WstxParsingException(msg, getLastCharLocation());
-    }
-
-    /**
-     * Construct and return a {@link XMLStreamException} to throw
-     * as a result of a failed Typed Access operation (but one not
-     * caused by a Well-Formedness Constraint or Validation Constraint
-     * problem)
-     */
-    /*
-    protected WstxException _constructTypeException(String msg)
-    {
-        // Hmmh. Should there be a distinct sub-type?
-        return new WstxParsingException(msg, getLastCharLocation());
-    }
-    */
-
-    protected WstxException constructFromIOE(IOException ioe)
-    {
-        return new WstxIOException(ioe);
-    }
-
-    protected WstxException constructNullCharException()
-    {
-        return new WstxUnexpectedCharException("Illegal character (NULL, unicode 0) encountered: not valid in any content",
-                getLastCharLocation(), CHAR_NULL);
-    }
-
-    protected void throwUnexpectedChar(int i, String msg) throws WstxException
-    {
-        char c = (char) i;
-        String excMsg = "Unexpected character "+getCharDesc(c)+msg;
-        throw new WstxUnexpectedCharException(excMsg, getLastCharLocation(), c);
     }
 
     protected void throwNullChar() throws WstxException {
         throw constructNullCharException();
+    }
+
+    protected WstxException constructNullCharException() {
+        return new WstxUnexpectedCharException("Illegal character (NULL, unicode 0) encountered: not valid in any content",
+                                               getLastCharLocation(), CHAR_NULL);
     }
 
     protected void throwInvalidSpace(int i) throws WstxException {
@@ -688,14 +532,13 @@ public abstract class StreamScanner
     }
 
     protected WstxException throwInvalidSpace(int i, boolean deferErrors)
-        throws WstxException
-    {
+            throws WstxException {
         char c = (char) i;
         WstxException ex;
         if (c == CHAR_NULL) {
             ex = constructNullCharException();
         } else {
-            String msg = "Illegal character ("+getCharDesc(c)+")";
+            String msg = "Illegal character (" + getCharDesc(c) + ")";
             if (mXml11) {
                 msg += " [note: in XML 1.1, it could be included via entity expansion]";
             }
@@ -707,13 +550,6 @@ public abstract class StreamScanner
         return ex;
     }
 
-    protected void throwUnexpectedEOF(String msg)
-        throws WstxException
-    {
-        throw new WstxEOFException("Unexpected EOF"+(msg == null ? "" : msg),
-                getLastCharLocation());
-    }
-
     /**
      * Similar to {@link #throwUnexpectedEOF}, but only indicates ending
      * of an input block. Used when reading a token that can not span
@@ -721,19 +557,23 @@ public abstract class StreamScanner
      * entity expansion).
      */
     protected void throwUnexpectedEOB(String msg)
-        throws WstxException
-    {
-        throw new WstxEOFException("Unexpected end of input block"+(msg == null ? "" : msg),
-                getLastCharLocation());
+            throws WstxException {
+        throw new WstxEOFException("Unexpected end of input block" + (msg == null ? "" : msg),
+                                   getLastCharLocation());
     }
 
     protected void throwFromIOE(IOException ioe) throws WstxException {
         throw new WstxIOException(ioe);
     }
 
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Other error reporting methods
+    ///////////////////////////////////////////////////////////////////////
+     */
+
     protected void throwFromStrE(XMLStreamException strex)
-            throws WstxException
-    {
+            throws WstxException {
         if (strex instanceof WstxException) {
             throw (WstxException) strex;
         }
@@ -744,8 +584,7 @@ public abstract class StreamScanner
      * Method called to report an error, when caller's signature only
      * allows runtime exceptions to be thrown.
      */
-    protected void throwLazyError(Exception e)
-    {
+    protected void throwLazyError(Exception e) {
         if (e instanceof XMLStreamException) {
             WstxLazyException.throwLazily((XMLStreamException) e);
         }
@@ -756,15 +595,9 @@ public abstract class StreamScanner
         return ErrorConsts.tokenTypeDesc(type);
     }
 
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Input buffer handling
-    ///////////////////////////////////////////////////////////////////////
-     */
-
     /**
      * Returns current input source this source uses.
-     *<p>
+     * <p>
      * Note: public only because some implementations are on different
      * package.
      */
@@ -777,8 +610,7 @@ public abstract class StreamScanner
     }
 
     @SuppressWarnings("cast")
-    protected final int getNext() throws XMLStreamException
-    {
+    protected final int getNext() throws XMLStreamException {
         if (mInputPtr >= mInputEnd) {
             if (!loadMore()) {
                 return -1;
@@ -790,31 +622,21 @@ public abstract class StreamScanner
     /**
      * Similar to {@link #getNext}, but does not advance pointer
      * in input buffer.
-     *<p>
+     * <p>
      * Note: this method only peeks within current input source;
      * it does not close it and check nested input source (if any).
      * This is necessary when checking keywords, since they can never
      * cross input block boundary.
      */
     @SuppressWarnings("cast")
-	protected final int peekNext()
-        throws XMLStreamException
-    {
+    protected final int peekNext()
+            throws XMLStreamException {
         if (mInputPtr >= mInputEnd) {
             if (!loadMoreFromCurrent()) {
                 return -1;
             }
         }
         return (int) mInputBuffer[mInputPtr];
-    }
-
-    protected final char getNextChar(String errorMsg)
-        throws XMLStreamException
-    {
-        if (mInputPtr >= mInputEnd) {
-            loadMore(errorMsg);
-        }
-        return mInputBuffer[mInputPtr++];
     }
 
     /**
@@ -826,8 +648,7 @@ public abstract class StreamScanner
      * such markup is not legal.
      */
     protected final char getNextCharFromCurrent(String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (mInputPtr >= mInputEnd) {
             loadMoreFromCurrent(errorMsg);
         }
@@ -840,9 +661,8 @@ public abstract class StreamScanner
      * indicate EOF (end of the outermost input source)/
      */
     @SuppressWarnings("cast")
-	protected final int getNextAfterWS()
-        throws XMLStreamException
-    {
+    protected final int getNextAfterWS()
+            throws XMLStreamException {
         if (mInputPtr >= mInputEnd) {
             if (!loadMore()) {
                 return -1;
@@ -868,8 +688,7 @@ public abstract class StreamScanner
     }
 
     protected final char getNextCharAfterWS(String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (mInputPtr >= mInputEnd) {
             loadMore(errorMsg);
         }
@@ -893,14 +712,12 @@ public abstract class StreamScanner
     }
 
     protected final char getNextInCurrAfterWS(String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         return getNextInCurrAfterWS(errorMsg, getNextCharFromCurrent(errorMsg));
     }
 
     protected final char getNextInCurrAfterWS(String errorMsg, char c)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         while (c <= CHAR_SPACE) {
             // Linefeed?
             if (c == '\n' || c == '\r') {
@@ -923,12 +740,10 @@ public abstract class StreamScanner
      * char is LF, and if so, skips it. Note that next character has to
      * come from the current input source, to qualify; it can never come
      * from another (nested) input source.
-     *
      * @return True, if passed in char is '\r' and next one is '\n'.
      */
-    protected final boolean skipCRLF(char c) 
-        throws XMLStreamException
-    {
+    protected final boolean skipCRLF(char c)
+            throws XMLStreamException {
         boolean result;
 
         if (c == '\r' && peekNext() == '\n') {
@@ -941,6 +756,12 @@ public abstract class StreamScanner
         mCurrInputRowStart = mInputPtr;
         return result;
     }
+
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Input buffer handling
+    ///////////////////////////////////////////////////////////////////////
+     */
 
     protected final void markLF() {
         ++mCurrInputRow;
@@ -957,25 +778,19 @@ public abstract class StreamScanner
      * that is, no more than one char can be guaranteed to be succesfully
      * returned.
      */
-    protected final void pushback() { --mInputPtr; }
-
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Sub-class overridable input handling methods
-    ///////////////////////////////////////////////////////////////////////
-     */
+    protected final void pushback() {
+        --mInputPtr;
+    }
 
     /**
      * Method called when an entity has been expanded (new input source
      * has been created). Needs to initialize location information and change
      * active input source.
-     *
      * @param entityId Name of the entity being expanded
      */
     protected void initInputSource(WstxInputSource newInput, boolean isExt,
                                    String entityId)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         // Let's make sure new input will be read next time input is needed:
         mInputPtr = 0;
         mInputEnd = 0;
@@ -1000,96 +815,8 @@ public abstract class StreamScanner
         }
     }
 
-    /**
-     * Method that will try to read one or more characters from currently
-     * open input sources; closing input sources if necessary.
-     *
-     * @return true if reading succeeded (or may succeed), false if
-     *   we reached EOF.
-     */
-    protected boolean loadMore()
-        throws XMLStreamException
-    {
-        WstxInputSource input = mInput;
-        do {
-            /* Need to make sure offsets are properly updated for error
-             * reporting purposes, and do this now while previous amounts
-             * are still known.
-             */
-            mCurrInputProcessed += mInputEnd;
-            verifyLimit("Maximum document characters", mConfig.getMaxCharacters(), mCurrInputProcessed);
-            mCurrInputRowStart -= mInputEnd;
-            int count;
-            try {
-                count = input.readInto(this);
-                if (count > 0) {
-                    return true;
-                }
-                input.close();
-            } catch (IOException ioe) {
-                throw constructFromIOE(ioe);
-            }
-            if (input == mRootInput) {
-                /* Note: no need to check entity/input nesting in this
-                 * particular case, since it will be handled by higher level
-                 * parsing code (results in an unexpected EOF)
-                 */
-                return false;
-            }
-            WstxInputSource parent = input.getParent();
-            if (parent == null) { // sanity check!
-                throwNullParent(input);
-            }
-            /* 13-Feb-2006, TSa: Ok, do we violate a proper nesting constraints
-             *   with this input block closure?
-             */
-            if (mCurrDepth != input.getScopeId()) {
-                handleIncompleteEntityProblem(input);
-            }
-
-            mInput = input = parent;
-            input.restoreContext(this);
-            mInputTopDepth = input.getScopeId();
-            /* 21-Feb-2006, TSa: Since linefeed normalization needs to be
-             *   suppressed for internal entity expansion, we may need to
-             *   change the state...
-             */
-            if (!mNormalizeLFs) {
-                mNormalizeLFs = !input.fromInternalEntity();
-            }
-            // Maybe there are leftovers from that input in buffer now?
-        } while (mInputPtr >= mInputEnd);
-
-        return true;
-    }
-
-    protected final boolean loadMore(String errorMsg)
-        throws XMLStreamException
-    {
-        if (!loadMore()) {
-            throwUnexpectedEOF(errorMsg);
-        }
-        return true;
-    }
-
-    protected boolean loadMoreFromCurrent()
-        throws XMLStreamException
-    {
-        // Need to update offsets properly
-        mCurrInputProcessed += mInputEnd;
-        mCurrInputRowStart -= mInputEnd;
-        verifyLimit("Maximum document characters", mConfig.getMaxCharacters(), mCurrInputProcessed);
-        try {
-            int count = mInput.readInto(this);
-            return (count > 0);
-        } catch (IOException ie) {
-            throw constructFromIOE(ie);
-        }
-    }
-
     protected final boolean loadMoreFromCurrent(String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (!loadMoreFromCurrent()) {
             throwUnexpectedEOB(errorMsg);
         }
@@ -1103,16 +830,14 @@ public abstract class StreamScanner
      * when input comes from main-level buffer; further, call can shift
      * content in input buffer, so caller has to flush any data still
      * pending. In short, caller has to know exactly what it's doing. :-)
-     *<p>
+     * <p>
      * Note: method does not check for any other input sources than the
      * current one -- if current source can not fulfill the request, a
      * failure is indicated.
-     *
      * @return true if there's now enough data; false if not (EOF)
      */
     protected boolean ensureInput(int minAmount)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         int currAmount = mInputEnd - mInputPtr;
         if (currAmount >= minAmount) {
             return true;
@@ -1125,8 +850,7 @@ public abstract class StreamScanner
     }
 
     protected void closeAllInput(boolean force)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         WstxInputSource input = mInput;
         while (true) {
             try {
@@ -1150,19 +874,29 @@ public abstract class StreamScanner
     }
 
     /**
-	 * @param curr Input source currently in use 
-	 */
-    protected void throwNullParent(WstxInputSource curr)
+     * Construct and return a {@link XMLStreamException} to throw
+     * as a result of a failed Typed Access operation (but one not
+     * caused by a Well-Formedness Constraint or Validation Constraint
+     * problem)
+     */
+    /*
+    protected WstxException _constructTypeException(String msg)
     {
+        // Hmmh. Should there be a distinct sub-type?
+        return new WstxParsingException(msg, getLastCharLocation());
+    }
+    */
+    protected WstxException constructFromIOE(IOException ioe) {
+        return new WstxIOException(ioe);
+    }
+
+    /**
+     * @param curr Input source currently in use
+     */
+    protected void throwNullParent(WstxInputSource curr) {
         throw new IllegalStateException(ErrorConsts.ERR_INTERNAL);
         //throw new IllegalStateException("Internal error: null parent for input source '"+curr+"'; should never occur (should have stopped at root input '"+mRootInput+"').");
     }
-
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Entity resolution
-    ///////////////////////////////////////////////////////////////////////
-     */
 
     /**
      * Method that tries to resolve a character entity, or (if caller so
@@ -1177,22 +911,19 @@ public abstract class StreamScanner
      * </ol>
      * If so, character value of entity is returned. Character 0 is returned
      * otherwise; if so, caller needs to do full resolution.
-     *<p>
+     * <p>
      * Note: On entry we are guaranteed there are at least 3 more characters
      * in this buffer; otherwise we shouldn't be called.
-     *
      * @param checkStd If true, will check pre-defined internal entities
-     *   (gt, lt, amp, apos, quot); if false, will only check actual
-     *   character entities.
-     *
+     * (gt, lt, amp, apos, quot); if false, will only check actual
+     * character entities.
      * @return (Valid) character value, if entity is a character reference,
-     *   and could be resolved from current input buffer (does not span
-     *   buffer boundary); null char (code 0) if not (either non-char
-     *   entity, or spans input buffer boundary).
+     * and could be resolved from current input buffer (does not span
+     * buffer boundary); null char (code 0) if not (either non-char
+     * entity, or spans input buffer boundary).
      */
     protected int resolveSimpleEntity(boolean checkStd)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         char[] buf = mInputBuffer;
         int ptr = mInputPtr;
         char c = buf[ptr++];
@@ -1262,7 +993,7 @@ public abstract class StreamScanner
              */
             if (c == 'a') { // amp or apos?
                 c = buf[ptr++];
-                
+
                 if (c == 'm') { // amp?
                     if (buf[ptr++] == 'p') {
                         if (ptr < mInputEnd && buf[ptr++] == ';') {
@@ -1306,6 +1037,146 @@ public abstract class StreamScanner
         return 0;
     }
 
+    protected void throwUnexpectedChar(int i, String msg) throws WstxException {
+        char c = (char) i;
+        String excMsg = "Unexpected character " + getCharDesc(c) + msg;
+        throw new WstxUnexpectedCharException(excMsg, getLastCharLocation(), c);
+    }
+
+    private void reportUnicodeOverflow()
+            throws XMLStreamException {
+        throwParseError("Illegal character entity: value higher than max allowed (0x{0})", Integer.toHexString(MAX_UNICODE_CHAR), null);
+    }
+
+    /**
+     * Method that will verify that expanded Unicode codepoint is a valid
+     * XML content character.
+     */
+    private final void validateChar(int value)
+            throws XMLStreamException {
+        /* 24-Jan-2006, TSa: Ok, "high" Unicode chars are problematic,
+         *   need to be reported by a surrogate pair..
+         */
+        if (value >= 0xD800) {
+            if (value < 0xE000) { // no surrogates via entity expansion
+                reportIllegalChar(value);
+            }
+            if (value > 0xFFFF) {
+                // Within valid range at all?
+                if (value > MAX_UNICODE_CHAR) {
+                    reportUnicodeOverflow();
+                }
+            } else if (value >= 0xFFFE) { // 0xFFFE and 0xFFFF are illegal too
+                reportIllegalChar(value);
+            }
+            // Ok, fine as is
+        } else if (value < 32) {
+            if (value == 0) {
+                throwParseError("Invalid character reference: null character not allowed in XML content.");
+            }
+            // XML 1.1 allows most other chars; 1.0 does not:
+            if (!mXml11 && !mAllowXml11EscapedCharsInXml10
+                    && (value != 0x9 && value != 0xA && value != 0xD)) {
+                reportIllegalChar(value);
+            }
+        }
+    }
+
+    private void reportIllegalChar(int value)
+            throws XMLStreamException {
+        throwParseError("Illegal character entity: expansion character (code 0x{0}", Integer.toHexString(value), null);
+    }
+
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Sub-class overridable input handling methods
+    ///////////////////////////////////////////////////////////////////////
+     */
+
+    @Override
+    public void throwParseError(String msg) throws XMLStreamException {
+        throwParseError(msg, null, null);
+    }
+
+    /**
+     * Throws generic parse error with specified message and current parsing
+     * location.
+     * <p>
+     * Note: public access only because core code in other packages needs
+     * to access it.
+     */
+    @Override
+    public void throwParseError(String format, Object arg, Object arg2)
+            throws XMLStreamException {
+        throw new Error(format.replace("{0}", arg.toString()).replace("{1}", arg2.toString()));
+    }
+
+    /**
+     * <p>
+     * Note: this is the base implementation used for implementing
+     * <code>ValidationContext</code>
+     */
+    @Override
+    public void reportValidationProblem(XMLValidationProblem prob)
+            throws XMLStreamException {
+        // !!! TBI: Fail-fast vs. deferred modes?
+        /* For now let's implement basic functionality: warnings get
+         * reported via XMLReporter, errors and fatal errors result in
+         * immediate exceptions.
+         */
+        /* 27-May-2008, TSa: [WSTX-153] Above is incorrect: as per Stax
+         *   javadocs for XMLReporter, both warnings and non-fatal errors
+         *   (which includes all validation errors) should be reported via
+         *   XMLReporter interface, and only fatals should cause an
+         *   immediate stream exception (by-passing reporter)
+         */
+        if (prob.getSeverity() > XMLValidationProblem.SEVERITY_ERROR) {
+            throw WstxValidationException.create(prob);
+        }
+        XMLReporter rep = mConfig.getXMLReporter();
+        if (rep != null) {
+            _reportProblem(rep, prob);
+        } else {
+            /* If no reporter, regular non-fatal errors are to be reported
+             * as exceptions as well, for backwards compatibility
+             */
+            if (prob.getSeverity() >= XMLValidationProblem.SEVERITY_ERROR) {
+                throw WstxValidationException.create(prob);
+            }
+        }
+    }
+
+    @Override
+    public void reportValidationProblem(String msg)
+            throws XMLStreamException {
+        reportValidationProblem(new XMLValidationProblem(getLastCharLocation(), msg,
+                                                         XMLValidationProblem.SEVERITY_ERROR));
+    }
+
+    @Override
+    public void reportValidationProblem(String format, Object arg, Object arg2)
+            throws XMLStreamException {
+        throw new Error(format.replace("{0}", arg.toString()).replace("{1}", arg2.toString()));
+    }
+
+    @Override
+    public void reportProblem(Location loc, String probType,
+                              String format, Object arg, Object arg2)
+            throws XMLStreamException {
+        XMLReporter rep = mConfig.getXMLReporter();
+        if (rep != null) {
+            throw new Error(format.replace("{0}", arg.toString()).replace("{1}", arg2.toString()));
+        }
+    }
+
+    /**
+     * Returns location of last properly parsed token; as per StAX specs,
+     * apparently needs to be the end of current event, which is the same
+     * as the start of the following event (or EOF if that's next).
+     */
+    @Override
+    public abstract Location getLocation();
+
     /**
      * Method called to resolve character entities, and only character
      * entities (except that pre-defined char entities -- amp, apos, lt,
@@ -1316,29 +1187,26 @@ public abstract class StreamScanner
      * entered (char after ampersand), plus the ampersand itself is
      * guaranteed to be in the input buffer (so caller can just push it
      * back if necessary).
-     *<p>
+     * <p>
      * Most often this method is called when reader is not to expand
      * non-char entities automatically, but to return them as separate
      * events.
-     *<p>
+     * <p>
      * Main complication here is that we need to do 5-char lookahead. This
      * is problematic if chars are on input buffer boundary. This is ok
      * for the root level input buffer, but not for some nested buffers.
      * However, according to XML specs, such split entities are actually
      * illegal... so we can throw an exception in those cases.
-     *
      * @param checkStd If true, will check pre-defined internal entities
-     *   (gt, lt, amp, apos, quot) as character entities; if false, will only
-     *   check actual 'real' character entities.
-     *
+     * (gt, lt, amp, apos, quot) as character entities; if false, will only
+     * check actual 'real' character entities.
      * @return (Valid) character value, if entity is a character reference,
-     *   and could be resolved from current input buffer (does not span
-     *   buffer boundary); null char (code 0) if not (either non-char
-     *   entity, or spans input buffer boundary).
+     * and could be resolved from current input buffer (does not span
+     * buffer boundary); null char (code 0) if not (either non-char
+     * entity, or spans input buffer boundary).
      */
     protected int resolveCharOnlyEntity(boolean checkStd)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         //int avail = inputInBuffer();
         int avail = mInputEnd - mInputPtr;
         if (avail < 6) {
@@ -1376,43 +1244,43 @@ public abstract class StreamScanner
         // nope... except may be a pre-def?
         if (checkStd) {
             if (c == 'a') {
-                char d = mInputBuffer[mInputPtr+1];
+                char d = mInputBuffer[mInputPtr + 1];
                 if (d == 'm') {
                     if (avail >= 4
-                        && mInputBuffer[mInputPtr+2] == 'p'
-                        && mInputBuffer[mInputPtr+3] == ';') {
+                            && mInputBuffer[mInputPtr + 2] == 'p'
+                            && mInputBuffer[mInputPtr + 3] == ';') {
                         mInputPtr += 4;
                         return '&';
                     }
                 } else if (d == 'p') {
                     if (avail >= 5
-                        && mInputBuffer[mInputPtr+2] == 'o'
-                        && mInputBuffer[mInputPtr+3] == 's'
-                        && mInputBuffer[mInputPtr+4] == ';') {
+                            && mInputBuffer[mInputPtr + 2] == 'o'
+                            && mInputBuffer[mInputPtr + 3] == 's'
+                            && mInputBuffer[mInputPtr + 4] == ';') {
                         mInputPtr += 5;
                         return '\'';
                     }
                 }
             } else if (c == 'l') {
                 if (avail >= 3
-                    && mInputBuffer[mInputPtr+1] == 't'
-                    && mInputBuffer[mInputPtr+2] == ';') {
+                        && mInputBuffer[mInputPtr + 1] == 't'
+                        && mInputBuffer[mInputPtr + 2] == ';') {
                     mInputPtr += 3;
                     return '<';
                 }
             } else if (c == 'g') {
                 if (avail >= 3
-                    && mInputBuffer[mInputPtr+1] == 't'
-                    && mInputBuffer[mInputPtr+2] == ';') {
+                        && mInputBuffer[mInputPtr + 1] == 't'
+                        && mInputBuffer[mInputPtr + 2] == ';') {
                     mInputPtr += 3;
                     return '>';
                 }
             } else if (c == 'q') {
                 if (avail >= 5
-                    && mInputBuffer[mInputPtr+1] == 'u'
-                    && mInputBuffer[mInputPtr+2] == 'o'
-                    && mInputBuffer[mInputPtr+3] == 't'
-                    && mInputBuffer[mInputPtr+4] == ';') {
+                        && mInputBuffer[mInputPtr + 1] == 'u'
+                        && mInputBuffer[mInputPtr + 2] == 'o'
+                        && mInputBuffer[mInputPtr + 3] == 't'
+                        && mInputBuffer[mInputPtr + 4] == ';') {
                     mInputPtr += 5;
                     return '"';
                 }
@@ -1420,6 +1288,12 @@ public abstract class StreamScanner
         }
         return 0;
     }
+
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Entity resolution
+    ///////////////////////////////////////////////////////////////////////
+     */
 
     /**
      * Reverse of {@link #resolveCharOnlyEntity}; will only resolve entity
@@ -1429,8 +1303,7 @@ public abstract class StreamScanner
      * mode); which means it's never called from dtd handler.
      */
     protected EntityDecl resolveNonCharEntity()
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         //int avail = inputInBuffer();
         int avail = mInputEnd - mInputPtr;
         if (avail < 6) {
@@ -1468,11 +1341,11 @@ public abstract class StreamScanner
 
         // have chars at least up to mInputPtr+4 by now
         if (c == 'a') {
-            char d = mInputBuffer[mInputPtr+1];
+            char d = mInputBuffer[mInputPtr + 1];
             if (d == 'm') {
                 if (avail >= 4
-                    && mInputBuffer[mInputPtr+2] == 'p'
-                    && mInputBuffer[mInputPtr+3] == ';') {
+                        && mInputBuffer[mInputPtr + 2] == 'p'
+                        && mInputBuffer[mInputPtr + 3] == ';') {
                     // If not automatically expanding:
                     //return sEntityAmp;
                     // mInputPtr += 4;
@@ -1480,30 +1353,30 @@ public abstract class StreamScanner
                 }
             } else if (d == 'p') {
                 if (avail >= 5
-                    && mInputBuffer[mInputPtr+2] == 'o'
-                    && mInputBuffer[mInputPtr+3] == 's'
-                    && mInputBuffer[mInputPtr+4] == ';') {
+                        && mInputBuffer[mInputPtr + 2] == 'o'
+                        && mInputBuffer[mInputPtr + 3] == 's'
+                        && mInputBuffer[mInputPtr + 4] == ';') {
                     return null;
                 }
             }
         } else if (c == 'l') {
             if (avail >= 3
-                && mInputBuffer[mInputPtr+1] == 't'
-                && mInputBuffer[mInputPtr+2] == ';') {
+                    && mInputBuffer[mInputPtr + 1] == 't'
+                    && mInputBuffer[mInputPtr + 2] == ';') {
                 return null;
             }
         } else if (c == 'g') {
             if (avail >= 3
-                && mInputBuffer[mInputPtr+1] == 't'
-                && mInputBuffer[mInputPtr+2] == ';') {
+                    && mInputBuffer[mInputPtr + 1] == 't'
+                    && mInputBuffer[mInputPtr + 2] == ';') {
                 return null;
             }
         } else if (c == 'q') {
             if (avail >= 5
-                && mInputBuffer[mInputPtr+1] == 'u'
-                && mInputBuffer[mInputPtr+2] == 'o'
-                && mInputBuffer[mInputPtr+3] == 't'
-                && mInputBuffer[mInputPtr+4] == ';') {
+                    && mInputBuffer[mInputPtr + 1] == 'u'
+                    && mInputBuffer[mInputPtr + 2] == 'o'
+                    && mInputBuffer[mInputPtr + 3] == 't'
+                    && mInputBuffer[mInputPtr + 4] == ';') {
                 return null;
             }
         }
@@ -1523,17 +1396,14 @@ public abstract class StreamScanner
      * a character entity (or one of 5 pre-defined entities), returns
      * char in question, or null character (code 0) to indicate it had
      * to change input source.
-     *
      * @param allowExt If true, is allowed to expand external entities
-     *   (expanding text); if false, is not (expanding attribute value).
-     *
+     * (expanding text); if false, is not (expanding attribute value).
      * @return Either single-character replacement (which is NOT to be
-     *    reparsed), or null char (0) to indicate expansion is done via
-     *    input source.
+     * reparsed), or null char (0) to indicate expansion is done via
+     * input source.
      */
     protected int fullyResolveEntity(boolean allowExt)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         char c = getNextCharFromCurrent(SUFFIX_IN_ENTITY_REF);
         // Do we have a (numeric) character entity reference?
         if (c == '#') { // numeric
@@ -1549,7 +1419,7 @@ public abstract class StreamScanner
         }
 
         String id = parseEntityName(c);
- 
+
         // Perhaps we have a pre-defined char reference?
         c = id.charAt(0);
         /*
@@ -1598,8 +1468,7 @@ public abstract class StreamScanner
      * Returns an entity (possibly from cache) for the argument character using the encoded
      * representation in mInputBuffer[entityStartPos ... mInputPtr-1].
      */
-    protected EntityDecl getIntEntity(int ch, final char[] originalChars)
-    {
+    protected EntityDecl getIntEntity(int ch, final char[] originalChars) {
         String cacheKey = new String(originalChars);
 
         IntEntity entity = mCachedEntities.get(cacheKey);
@@ -1610,8 +1479,8 @@ public abstract class StreamScanner
             } else {
                 StringBuffer sb = new StringBuffer(2);
                 ch -= 0x10000;
-                sb.append((char) ((ch >> 10)  + 0xD800));
-                sb.append((char) ((ch & 0x3FF)  + 0xDC00));
+                sb.append((char) ((ch >> 10) + 0xD800));
+                sb.append((char) ((ch & 0x3FF) + 0xDC00));
                 repl = sb.toString();
             }
             entity = IntEntity.create(new String(originalChars), repl);
@@ -1620,29 +1489,26 @@ public abstract class StreamScanner
         return entity;
     }
 
-
     /**
      * Helper method that will try to expand a parsed entity (parameter or
      * generic entity).
-     *<p>
+     * <p>
      * note: called by sub-classes (dtd parser), needs to be protected.
-     *
-     * @param id Name of the entity being expanded 
+     * @param id Name of the entity being expanded
      * @param allowExt Whether external entities can be expanded or not; if
-     *   not, and the entity to expand would be external one, an exception
-     *   will be thrown
+     * not, and the entity to expand would be external one, an exception
+     * will be thrown
      */
     protected EntityDecl expandEntity(String id, boolean allowExt,
                                       Object extraArg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         mCurrName = id;
 
         EntityDecl ed = findEntity(id, extraArg);
 
         if (ed == null) {
             /* 30-Sep-2005, TSa: As per [WSTX-5], let's only throw exception
-             *   if we have to resolve it (otherwise it's just best-effort, 
+             *   if we have to resolve it (otherwise it's just best-effort,
              *   and null is ok)
              */
             /* 02-Oct-2005, TSa: Plus, [WSTX-4] adds "undeclared entity
@@ -1653,26 +1519,24 @@ public abstract class StreamScanner
             }
             return null;
         }
-        
+
         if (!mCfgTreatCharRefsAsEntities || this instanceof MinimalDTDReader) {
             expandEntity(ed, allowExt);
         }
-        
+
         return ed;
     }
 
     /**
-     *<p>
+     * <p>
      * note: defined as private for documentation, ie. it's just called
      * from within this class (not sub-classes), from one specific method
      * (see above)
-     *
      * @param ed Entity to be expanded
      * @param allowExt Whether external entities are allowed or not.
      */
     private void expandEntity(EntityDecl ed, boolean allowExt)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         String id = ed.getName();
 
         /* Very first thing; we can immediately check if expanding
@@ -1723,12 +1587,11 @@ public abstract class StreamScanner
     }
 
     /**
-     *<p>
+     * <p>
      * note: only called from the local expandEntity() method
      */
     private EntityDecl expandUnresolvedEntity(String id)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         XMLResolver resolver = mConfig.getUndeclaredEntityResolver();
         if (resolver != null) {
             /* Ok, we can check for recursion here; but let's only do that
@@ -1751,10 +1614,10 @@ public abstract class StreamScanner
             WstxInputSource newInput;
             try {
                 newInput = DefaultInputResolver.resolveEntityUsing
-                    (oldInput, id, null, null, resolver, mConfig, xmlVersion);
+                        (oldInput, id, null, null, resolver, mConfig, xmlVersion);
                 if (mCfgTreatCharRefsAsEntities) {
                     return new IntEntity(WstxInputLocation.getEmptyLocation(), newInput.getEntityId(),
-                            newInput.getSource(), new char[]{}, WstxInputLocation.getEmptyLocation());
+                                         newInput.getSource(), new char[]{}, WstxInputLocation.getEmptyLocation());
                 }
             } catch (IOException ioe) {
                 throw constructFromIOE(ioe);
@@ -1769,22 +1632,15 @@ public abstract class StreamScanner
         return null;
     }
 
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Abstract methods for sub-classes to implement
-    ///////////////////////////////////////////////////////////////////////
-     */
-
     /**
      * Abstract method for sub-classes to implement, for finding
      * a declared general or parsed entity.
-     *
      * @param id Identifier of the entity to find
      * @param arg Optional argument passed from caller; needed by DTD
-     *    reader.
+     * reader.
      */
     protected abstract EntityDecl findEntity(String id, Object arg)
-        throws XMLStreamException;
+            throws XMLStreamException;
 
     /**
      * This method gets called if a declaration for an entity was not
@@ -1792,14 +1648,11 @@ public abstract class StreamScanner
      * always enabled for dtd reader).
      */
     protected abstract void handleUndeclaredEntity(String id)
-        throws XMLStreamException;
-
-    protected abstract void handleIncompleteEntityProblem(WstxInputSource closing)
-        throws XMLStreamException;
+            throws XMLStreamException;
 
     /*
     ///////////////////////////////////////////////////////////////////////
-    // Basic tokenization
+    // Abstract methods for sub-classes to implement
     ///////////////////////////////////////////////////////////////////////
      */
 
@@ -1807,25 +1660,22 @@ public abstract class StreamScanner
      * Method that will parse name token (roughly equivalent to XML specs;
      * although bit lenier for more efficient handling); either uri prefix,
      * or local name.
-     *<p>
-     * Much of complexity in this method has to do with the intention to 
+     * <p>
+     * Much of complexity in this method has to do with the intention to
      * try to avoid any character copies. In this optimal case algorithm
      * would be fairly simple. However, this only works if all data is
      * already in input buffer... if not, copy has to be made halfway
      * through parsing, and that complicates things.
-     *<p>
+     * <p>
      * One thing to note is that String returned has been canonicalized
      * and (if necessary) added to symbol table. It can thus be compared
      * against other such (usually id) Strings, with simple equality operator.
-     *
      * @param c First character of the name; not yet checked for validity
-     *
      * @return Canonicalized name String (which may have length 0, if
-     *    EOF or non-name-start char encountered)
+     * EOF or non-name-start char encountered)
      */
     protected String parseLocalName(char c)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         /* Has to start with letter, or '_' (etc); we won't allow ':' as that
          * is taken as namespace separator; no use trying to optimize
          * heavily as it's 98% likely it is a valid char...
@@ -1840,7 +1690,7 @@ public abstract class StreamScanner
         int ptr = mInputPtr;
         int hash = c;
         final int inputLen = mInputEnd;
-        int startPtr = ptr-1; // already read previous char
+        int startPtr = ptr - 1; // already read previous char
         final char[] inputBuf = mInputBuffer;
 
         /* After which there may be zero or more name chars
@@ -1874,16 +1724,15 @@ public abstract class StreamScanner
      * Second part of name token parsing; called when name can continue
      * past input buffer end (so only part was read before calling this
      * method to read the rest).
-     *<p>
+     * <p>
      * Note that this isn't heavily optimized, on assumption it's not
      * called very often.
      */
     protected String parseLocalName2(int start, int hash)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         int ptr = mInputEnd - start;
         // Let's assume fairly short names
-        char[] outBuf = getNameBuffer(ptr+8);
+        char[] outBuf = getNameBuffer(ptr + 8);
 
         if (ptr > 0) {
             System.arraycopy(mInputBuffer, start, outBuf, 0, ptr);
@@ -1916,6 +1765,58 @@ public abstract class StreamScanner
         return mSymbols.findSymbol(outBuf, 0, ptr, hash);
     }
 
+    protected final char[] getNameBuffer(int minSize) {
+        char[] buf = mNameBuffer;
+
+        if (buf == null) {
+            mNameBuffer = buf = new char[(minSize > 48) ? (minSize + 16) : 64];
+        } else if (minSize >= buf.length) { // let's allow one char extra...
+            int len = buf.length;
+            len += (len >> 1); // grow by 50%
+            mNameBuffer = buf = new char[(minSize >= len) ? (minSize + 16) : len];
+        }
+        return buf;
+    }
+
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Basic tokenization
+    ///////////////////////////////////////////////////////////////////////
+     */
+
+    protected boolean loadMoreFromCurrent()
+            throws XMLStreamException {
+        // Need to update offsets properly
+        mCurrInputProcessed += mInputEnd;
+        mCurrInputRowStart -= mInputEnd;
+        verifyLimit("Maximum document characters", mConfig.getMaxCharacters(), mCurrInputProcessed);
+        try {
+            int count = mInput.readInto(this);
+            return (count > 0);
+        } catch (IOException ie) {
+            throw constructFromIOE(ie);
+        }
+    }
+
+    protected final char[] expandBy50Pct(char[] buf) {
+        int len = buf.length;
+        char[] newBuf = new char[len + (len >> 1)];
+        System.arraycopy(buf, 0, newBuf, 0, len);
+        return newBuf;
+    }
+
+    protected void verifyLimit(String type, long maxValue, long currentValue)
+            throws XMLStreamException {
+        if (currentValue > maxValue) {
+            throw constructLimitViolation(type, maxValue);
+        }
+    }
+
+    protected XMLStreamException constructLimitViolation(String type, long limit)
+            throws XMLStreamException {
+        return new XMLStreamException(type + " limit (" + limit + ") exceeded");
+    }
+
     /**
      * Method that will parse 'full' name token; what full means depends on
      * whether reader is namespace aware or not. If it is, full name means
@@ -1923,19 +1824,17 @@ public abstract class StreamScanner
      * if not, name can contain arbitrary number of colons. Note that
      * element and attribute names are NOT parsed here, so actual namespace
      * prefix separation can be handled properly there.
-     *<p>
+     * <p>
      * Similar to {@link #parseLocalName}, much of complexity stems from
      * trying to avoid copying name characters from input buffer.
-     *<p>
+     * <p>
      * Note that returned String will be canonicalized, similar to
      * {@link #parseLocalName}, but without separating prefix/local name.
-      *
      * @return Canonicalized name String (which may have length 0, if
-     *    EOF or non-name-start char encountered)
+     * EOF or non-name-start char encountered)
      */
     protected String parseFullName()
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (mInputPtr >= mInputEnd) {
             loadMoreFromCurrent();
         }
@@ -1943,8 +1842,7 @@ public abstract class StreamScanner
     }
 
     protected String parseFullName(char c)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         // First char has special handling:
         if (!isNameStartChar(c)) {
             if (c == ':') { // no name.... generally an error:
@@ -1963,7 +1861,7 @@ public abstract class StreamScanner
         int ptr = mInputPtr;
         int hash = c;
         int inputLen = mInputEnd;
-        int startPtr = ptr-1; // to account for the first char
+        int startPtr = ptr - 1; // to account for the first char
 
         /* After which there may be zero or more name chars
          * we have to consider
@@ -1999,12 +1897,11 @@ public abstract class StreamScanner
     }
 
     @SuppressWarnings("cast")
-	protected String parseFullName2(int start, int hash)
-        throws XMLStreamException
-    {
+    protected String parseFullName2(int start, int hash)
+            throws XMLStreamException {
         int ptr = mInputEnd - start;
         // Let's assume fairly short names
-        char[] outBuf = getNameBuffer(ptr+8);
+        char[] outBuf = getNameBuffer(ptr + 8);
 
         if (ptr > 0) {
             System.arraycopy(mInputBuffer, start, outBuf, 0, ptr);
@@ -2054,8 +1951,7 @@ public abstract class StreamScanner
      * messages.
      */
     protected String parseFNameForError()
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         StringBuilder sb = new StringBuilder(100);
         while (true) {
             char c;
@@ -2079,8 +1975,7 @@ public abstract class StreamScanner
     }
 
     protected final String parseEntityName(char c)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         String id = parseFullName(c);
         // Needs to be followed by a semi-colon, too.. from same input source:
         if (mInputPtr >= mInputEnd) {
@@ -2090,23 +1985,21 @@ public abstract class StreamScanner
         }
         c = mInputBuffer[mInputPtr++];
         if (c != ';') {
-            throwUnexpectedChar(c, "; expected a semi-colon after the reference for entity '"+id+"'");
+            throwUnexpectedChar(c, "; expected a semi-colon after the reference for entity '" + id + "'");
         }
         return id;
     }
-    
+
     /**
      * Note: does not check for number of colons, amongst other things.
      * Main idea is to skip through what superficially seems like a valid
      * id, nothing more. This is only done when really skipping through
      * something we do not care about at all: not even whether names/ids
      * would be valid (for example, when ignoring internal DTD subset).
-     *
      * @return Length of skipped name.
      */
     protected int skipFullName(char c)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         if (!isNameStartChar(c)) {
             --mInputPtr;
             return 0;
@@ -2118,7 +2011,7 @@ public abstract class StreamScanner
         int count = 1;
         while (true) {
             c = (mInputPtr < mInputEnd) ?
-                mInputBuffer[mInputPtr++] : getNextChar(SUFFIX_EOF_EXP_NAME);
+                    mInputBuffer[mInputPtr++] : getNextChar(SUFFIX_EOF_EXP_NAME);
             if (c != ':' && !isNameChar(c)) {
                 break;
             }
@@ -2127,28 +2020,119 @@ public abstract class StreamScanner
         return count;
     }
 
+    protected final char getNextChar(String errorMsg)
+            throws XMLStreamException {
+        if (mInputPtr >= mInputEnd) {
+            loadMore(errorMsg);
+        }
+        return mInputBuffer[mInputPtr++];
+    }
+
+    /*
+    ///////////////////////////////////////////////////////////////////////
+    // Internal methods
+    ///////////////////////////////////////////////////////////////////////
+     */
+
+    protected final boolean loadMore(String errorMsg)
+            throws XMLStreamException {
+        if (!loadMore()) {
+            throwUnexpectedEOF(errorMsg);
+        }
+        return true;
+    }
+
+    /**
+     * Method that will try to read one or more characters from currently
+     * open input sources; closing input sources if necessary.
+     * @return true if reading succeeded (or may succeed), false if
+     * we reached EOF.
+     */
+    protected boolean loadMore()
+            throws XMLStreamException {
+        WstxInputSource input = mInput;
+        do {
+            /* Need to make sure offsets are properly updated for error
+             * reporting purposes, and do this now while previous amounts
+             * are still known.
+             */
+            mCurrInputProcessed += mInputEnd;
+            verifyLimit("Maximum document characters", mConfig.getMaxCharacters(), mCurrInputProcessed);
+            mCurrInputRowStart -= mInputEnd;
+            int count;
+            try {
+                count = input.readInto(this);
+                if (count > 0) {
+                    return true;
+                }
+                input.close();
+            } catch (IOException ioe) {
+                throw constructFromIOE(ioe);
+            }
+            if (input == mRootInput) {
+                /* Note: no need to check entity/input nesting in this
+                 * particular case, since it will be handled by higher level
+                 * parsing code (results in an unexpected EOF)
+                 */
+                return false;
+            }
+            WstxInputSource parent = input.getParent();
+            if (parent == null) { // sanity check!
+                throwNullParent(input);
+            }
+            /* 13-Feb-2006, TSa: Ok, do we violate a proper nesting constraints
+             *   with this input block closure?
+             */
+            if (mCurrDepth != input.getScopeId()) {
+                handleIncompleteEntityProblem(input);
+            }
+
+            mInput = input = parent;
+            input.restoreContext(this);
+            mInputTopDepth = input.getScopeId();
+            /* 21-Feb-2006, TSa: Since linefeed normalization needs to be
+             *   suppressed for internal entity expansion, we may need to
+             *   change the state...
+             */
+            if (!mNormalizeLFs) {
+                mNormalizeLFs = !input.fromInternalEntity();
+            }
+            // Maybe there are leftovers from that input in buffer now?
+        } while (mInputPtr >= mInputEnd);
+
+        return true;
+    }
+
+    protected void throwUnexpectedEOF(String msg)
+            throws WstxException {
+        throw new WstxEOFException("Unexpected EOF" + (msg == null ? "" : msg),
+                                   getLastCharLocation());
+    }
+
+    protected abstract void handleIncompleteEntityProblem(WstxInputSource closing)
+            throws XMLStreamException;
+
     /**
      * Simple parsing method that parses system ids, which are generally
      * used in entities (from DOCTYPE declaration to internal/external
      * subsets).
-     *<p>
+     * <p>
      * NOTE: returned String is not canonicalized, on assumption that
      * external ids may be longish, and are not shared all that often, as
      * they are generally just used for resolving paths, if anything.
-     *<br>
+     * <br>
      * Also note that this method is not heavily optimized, as it's not
      * likely to be a bottleneck for parsing.
      */
     protected final String parseSystemId(char quoteChar, boolean convertLFs,
                                          String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         char[] buf = getNameBuffer(-1);
         int ptr = 0;
 
         while (true) {
             char c = (mInputPtr < mInputEnd) ?
-                mInputBuffer[mInputPtr++] : getNextChar(errorMsg);
+                    mInputBuffer[mInputPtr++] : getNextChar(errorMsg);
             if (c == quoteChar) {
                 break;
             }
@@ -2190,26 +2174,25 @@ public abstract class StreamScanner
      * Simple parsing method that parses system ids, which are generally
      * used in entities (from DOCTYPE declaration to internal/external
      * subsets).
-     *<p>
+     * <p>
      * As per xml specs, the contents are actually normalized.
-     *<p>
+     * <p>
      * NOTE: returned String is not canonicalized, on assumption that
      * external ids may be longish, and are not shared all that often, as
      * they are generally just used for resolving paths, if anything.
-     *<br>
+     * <br>
      * Also note that this method is not heavily optimized, as it's not
      * likely to be a bottleneck for parsing.
      */
     protected final String parsePublicId(char quoteChar, String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         char[] buf = getNameBuffer(-1);
         int ptr = 0;
         boolean spaceToAdd = false;
 
         while (true) {
             char c = (mInputPtr < mInputEnd) ?
-                mInputBuffer[mInputPtr++] : getNextChar(errorMsg);
+                    mInputBuffer[mInputPtr++] : getNextChar(errorMsg);
             if (c == quoteChar) {
                 break;
             }
@@ -2229,11 +2212,11 @@ public abstract class StreamScanner
             } else {
                 // Verify it's a legal pubid char (see XML spec, #13, from 2.3)
                 if ((c >= VALID_PUBID_CHAR_COUNT)
-                    || sPubidValidity[c] != PUBID_CHAR_VALID_B) {
+                        || sPubidValidity[c] != PUBID_CHAR_VALID_B) {
                     throwUnexpectedChar(c, " in public identifier");
                 }
             }
-        
+
             // Other than that, let's just append it:
             if (ptr >= buf.length) {
                 buf = expandBy50Pct(buf);
@@ -2259,14 +2242,13 @@ public abstract class StreamScanner
             }
             buf[ptr++] = c;
         }
-      
+
         return (ptr == 0) ? "" : new String(buf, 0, ptr);
     }
 
     protected final void parseUntil(TextBuffer tb, char endChar, boolean convertLFs,
                                     String errorMsg)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         // Let's first ensure we have some data in there...
         if (mInputPtr >= mInputEnd) {
             loadMore(errorMsg);
@@ -2331,30 +2313,23 @@ public abstract class StreamScanner
         }
     }
 
-    /*
-    ///////////////////////////////////////////////////////////////////////
-    // Internal methods
-    ///////////////////////////////////////////////////////////////////////
-     */
-
     private int resolveCharEnt(StringBuffer originalCharacters)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         int value = 0;
         char c = getNextChar(SUFFIX_IN_ENTITY_REF);
-        
+
         if (originalCharacters != null) {
             originalCharacters.append(c);
         }
-        
+
         if (c == 'x') { // hex
             while (true) {
                 c = (mInputPtr < mInputEnd) ? mInputBuffer[mInputPtr++]
-                    : getNextCharFromCurrent(SUFFIX_IN_ENTITY_REF);
+                        : getNextCharFromCurrent(SUFFIX_IN_ENTITY_REF);
                 if (c == ';') {
                     break;
                 }
-                
+
                 if (originalCharacters != null) {
                     originalCharacters.append(c);
                 }
@@ -2385,8 +2360,8 @@ public abstract class StreamScanner
                     throwUnexpectedChar(c, "; expected a decimal number.");
                 }
                 c = (mInputPtr < mInputEnd) ? mInputBuffer[mInputPtr++]
-                    : getNextCharFromCurrent(SUFFIX_IN_ENTITY_REF);
-                
+                        : getNextCharFromCurrent(SUFFIX_IN_ENTITY_REF);
+
                 if (originalCharacters != null && c != ';') {
                     originalCharacters.append(c);
                 }
@@ -2397,102 +2372,17 @@ public abstract class StreamScanner
     }
 
     /**
-     * Method that will verify that expanded Unicode codepoint is a valid
-     * XML content character.
-     */
-    private final void validateChar(int value)
-        throws XMLStreamException
-    {
-        /* 24-Jan-2006, TSa: Ok, "high" Unicode chars are problematic,
-         *   need to be reported by a surrogate pair..
-         */
-        if (value >= 0xD800) {
-            if (value < 0xE000) { // no surrogates via entity expansion
-                reportIllegalChar(value);
-            }
-            if (value > 0xFFFF) {
-                // Within valid range at all?
-                if (value > MAX_UNICODE_CHAR) {
-                    reportUnicodeOverflow();
-                }
-            } else if (value >= 0xFFFE) { // 0xFFFE and 0xFFFF are illegal too
-                reportIllegalChar(value);
-            }
-            // Ok, fine as is
-        } else if (value < 32) {
-            if (value == 0) {
-                throwParseError("Invalid character reference: null character not allowed in XML content.");
-            }
-            // XML 1.1 allows most other chars; 1.0 does not:
-            if (!mXml11 && !mAllowXml11EscapedCharsInXml10
-                && (value != 0x9 && value != 0xA && value != 0xD)) {
-                reportIllegalChar(value);
-            }
-        }
-    }
-
-    protected final char[] getNameBuffer(int minSize)
-    {
-        char[] buf = mNameBuffer;
-        
-        if (buf == null) {
-            mNameBuffer = buf = new char[(minSize > 48) ? (minSize+16) : 64];
-        } else if (minSize >= buf.length) { // let's allow one char extra...
-            int len = buf.length;
-            len += (len >> 1); // grow by 50%
-            mNameBuffer = buf = new char[(minSize >= len) ? (minSize+16) : len];
-        }
-        return buf;
-    }
-    
-    protected final char[] expandBy50Pct(char[] buf)
-    {
-        int len = buf.length;
-        char[] newBuf = new char[len + (len >> 1)];
-        System.arraycopy(buf, 0, newBuf, 0, len);
-        return newBuf;
-    }
-
-    /**
      * Method called to throw an exception indicating that a name that
      * should not be namespace-qualified (PI target, entity/notation name)
      * is one, and reader is namespace aware.
      */
     private void throwNsColonException(String name)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         throwParseError("Illegal name \"{0}\" (PI target, entity/notation name): can not contain a colon (XML Namespaces 1.0#6)", name, null);
     }
 
     private void throwRecursionError(String entityName)
-        throws XMLStreamException
-    {
+            throws XMLStreamException {
         throwParseError("Illegal entity expansion: entity \"{0}\" expands itself recursively.", entityName, null);
-    }
-
-    private void reportUnicodeOverflow()
-        throws XMLStreamException
-    {
-        throwParseError("Illegal character entity: value higher than max allowed (0x{0})", Integer.toHexString(MAX_UNICODE_CHAR), null);
-    }
-
-    private void reportIllegalChar(int value)
-        throws XMLStreamException
-    {
-        throwParseError("Illegal character entity: expansion character (code 0x{0}", Integer.toHexString(value), null);
-    }
-
-    protected void verifyLimit(String type, long maxValue, long currentValue)
-        throws XMLStreamException
-    {
-        if (currentValue > maxValue) {
-            throw constructLimitViolation(type, maxValue);
-        }
-    }
-
-    protected XMLStreamException constructLimitViolation(String type, long limit)
-        throws XMLStreamException
-    {
-        return new XMLStreamException(type+" limit ("+limit+") exceeded");
     }
 }
